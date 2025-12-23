@@ -2,7 +2,7 @@
 <html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>🎄 聖誕數學樹 - 快樂學數學</title>
     
     <!-- Tailwind CSS -->
@@ -16,7 +16,7 @@
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
     <style>
-        body { margin: 0; padding: 0; overflow: hidden; background-color: #0f172a; }
+        body { margin: 0; padding: 0; overflow: hidden; background-color: #0f172a; touch-action: none; }
         .hide-scrollbar::-webkit-scrollbar { display: none; }
         .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
         @keyframes bounce-short {
@@ -26,6 +26,9 @@
         .animate-bounce-short { animation: bounce-short 0.5s ease-in-out; }
         .cursor-grab { cursor: grab; }
         .cursor-grabbing { cursor: grabbing; }
+        
+        /* Prevent pull-to-refresh on mobile */
+        body { overscroll-behavior-y: contain; }
     </style>
 </head>
 <body>
@@ -34,10 +37,7 @@
     <script type="text/babel">
         const { useState, useEffect, useRef } = React;
 
-        // --- Icon Components (Inline SVGs to avoid dependencies) ---
-        const Sparkles = ({ size = 24, className = "" }) => (
-            <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/></svg>
-        );
+        // --- Icons ---
         const RefreshCw = ({ size = 24, className = "" }) => (
             <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg>
         );
@@ -64,32 +64,31 @@
             const [dragPosition, setDragPosition] = useState({ x: 0, y: 0 });
             const [feedback, setFeedback] = useState(null);
             
-            // AI Related State
+            // AI State
             const [showAIModal, setShowAIModal] = useState(false);
             const [aiPrompt, setAiPrompt] = useState("給我 10 題適合小學一年級的加減法");
             const [isGenerating, setIsGenerating] = useState(false);
             const [aiWinMessage, setAiWinMessage] = useState("");
             const [aiError, setAiError] = useState("");
 
-            // Refs
             const treeRef = useRef(null);
             const slotRefs = useRef({});
 
-            // ⚠️ 請在這裡填入您的 Google Gemini API Key 才能使用 AI 功能
+            // ⚠️ 請在這裡填入您的 Google Gemini API Key
             const apiKey = "AIzaSyCWqG9d57-v8BorhZjmtJVy88vKIYsiZVs"; 
 
             // Configuration
             const TREE_SLOTS_POS = [
-                { id: 0, top: '22%', left: '50%' },
-                { id: 1, top: '38%', left: '40%' },
-                { id: 2, top: '38%', left: '60%' },
-                { id: 3, top: '55%', left: '30%' },
-                { id: 4, top: '55%', left: '50%' },
-                { id: 5, top: '55%', left: '70%' },
-                { id: 6, top: '72%', left: '20%' },
-                { id: 7, top: '72%', left: '40%' },
-                { id: 8, top: '72%', left: '60%' },
-                { id: 9, top: '72%', left: '80%' },
+                { id: 0, top: '20%', left: '50%' },
+                { id: 1, top: '35%', left: '40%' },
+                { id: 2, top: '35%', left: '60%' },
+                { id: 3, top: '50%', left: '30%' },
+                { id: 4, top: '50%', left: '50%' },
+                { id: 5, top: '50%', left: '70%' },
+                { id: 6, top: '68%', left: '20%' },
+                { id: 7, top: '68%', left: '40%' },
+                { id: 8, top: '68%', left: '60%' },
+                { id: 9, top: '68%', left: '80%' },
             ];
 
             const BALL_STYLES = [
@@ -140,29 +139,18 @@
 
             const generateAILevel = async () => {
                 if (!aiPrompt.trim()) return;
-                
                 setIsGenerating(true);
                 setAiError("");
                 
                 const systemPrompt = `
-                  You are a math teacher creating a game for kids. 
-                  Generate exactly 10 unique math problems based on the user's request.
-                  The problems should be simple equations (e.g., "5 + 3").
-                  
-                  Requirements:
-                  1. Return a JSON object with a property "problems" which is an array of 10 objects.
-                  2. Each object must have:
-                     - "num1" (number or string)
-                     - "operator" (string: "+", "-", "x", "÷")
-                     - "num2" (number or string)
-                     - "answer" (number)
-                  3. CRITICAL: All 10 'answer' values MUST be unique (different from each other). This is a game mechanic requirement.
-                  4. Ensure the difficulty matches the user's request.
+                  Generate exactly 10 unique math problems (e.g. "5 + 3").
+                  Return JSON: { "problems": [{ "num1": 5, "operator": "+", "num2": 3, "answer": 8 }, ...] }
+                  CRITICAL: All 10 'answer' values MUST be unique.
+                  Difficulty based on user request.
                 `;
 
                 try {
                     const result = await callGemini(aiPrompt, systemPrompt);
-                    
                     if (result && result.problems && result.problems.length > 0) {
                         setupGameFromData(result.problems.slice(0, 10));
                         setShowAIModal(false);
@@ -170,9 +158,7 @@
                         setAiError("AI 無法生成題目，請換個說法試試看！");
                     }
                 } catch (e) {
-                    if (e.message !== "No API Key") {
-                        setAiError("連線錯誤，請稍後再試。");
-                    }
+                    if (e.message !== "No API Key") setAiError("連線錯誤，請稍後再試。");
                 } finally {
                     setIsGenerating(false);
                 }
@@ -190,7 +176,7 @@
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({
-                                contents: [{ parts: [{ text: "Write a short, funny, emoji-filled congratulatory message for a kid who just solved 10 math problems. Keep it under 20 words. Traditional Chinese." }] }],
+                                contents: [{ parts: [{ text: "Write a short, funny, emoji-filled congratulatory message (Traditional Chinese) for a kid who just solved 10 math problems. Max 20 words." }] }],
                             }),
                         }
                     );
@@ -210,26 +196,20 @@
 
                 dataList.forEach((item, i) => {
                     if (i >= 10) return; 
-                    const questionStr = `${item.num1} ${item.operator} ${item.num2}`;
-                    
                     newProblems.push({
                         id: i,
-                        question: questionStr,
+                        question: `${item.num1} ${item.operator} ${item.num2}`,
                         answer: item.answer,
                         solved: false,
                         ...TREE_SLOTS_POS[i]
                     });
-
-                    const colorStyle = shuffledColors[i % shuffledColors.length];
-
                     newAnswers.push({
                         id: `ans-${i}`,
                         value: item.answer,
                         problemId: i,
                         currentSlot: null,
                         isDragging: false,
-                        side: i % 2 === 0 ? 'left' : 'right',
-                        colorStyle: colorStyle,
+                        colorStyle: shuffledColors[i % shuffledColors.length],
                     });
                 });
 
@@ -243,12 +223,11 @@
             const startNewGame = () => {
                 const newProblems = [];
                 const newAnswers = [];
-                const count = 10;
                 const usedAnswers = new Set();
                 const shuffledColors = [...BALL_STYLES].sort(() => 0.5 - Math.random());
 
-                for (let i = 0; i < count; i++) {
-                    let num1, num2, operator, answer, questionStr;
+                for (let i = 0; i < 10; i++) {
+                    let num1, num2, operator, answer;
                     do {
                         operator = Math.random() > 0.5 ? '+' : '-';
                         if (operator === '+') {
@@ -263,26 +242,20 @@
                     } while (usedAnswers.has(answer));
 
                     usedAnswers.add(answer);
-                    questionStr = `${num1} ${operator} ${num2}`;
-
                     newProblems.push({
                         id: i,
-                        question: questionStr,
+                        question: `${num1} ${operator} ${num2}`,
                         answer: answer,
                         solved: false,
                         ...TREE_SLOTS_POS[i]
                     });
-
-                    const colorStyle = shuffledColors[i % shuffledColors.length];
-
                     newAnswers.push({
                         id: `ans-${i}`,
                         value: answer,
                         problemId: i,
                         currentSlot: null,
                         isDragging: false,
-                        side: i % 2 === 0 ? 'left' : 'right',
-                        colorStyle: colorStyle,
+                        colorStyle: shuffledColors[i % shuffledColors.length],
                     });
                 }
 
@@ -293,38 +266,44 @@
                 setAiWinMessage("");
             };
 
-            // --- Drag and Drop Logic ---
+            // --- Drag and Drop ---
             const handlePointerDown = (e, answerId) => {
                 e.preventDefault(); 
                 const answer = answers.find(a => a.id === answerId);
                 if (answer.currentSlot !== null) return;
+                
+                // For mobile touches, use first touch point
+                const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+                const clientY = e.touches ? e.touches[0].clientY : e.clientY;
 
                 setDraggedItem(answerId);
-                setDragPosition({ x: e.clientX, y: e.clientY });
+                setDragPosition({ x: clientX, y: clientY });
                 setAnswers(prev => prev.map(a => a.id === answerId ? { ...a, isDragging: true } : a));
             };
 
             const handlePointerMove = (e) => {
                 if (draggedItem) {
                     e.preventDefault();
-                    setDragPosition({ x: e.clientX, y: e.clientY });
+                    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+                    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+                    setDragPosition({ x: clientX, y: clientY });
                 }
             };
 
             const handlePointerUp = (e) => {
                 if (!draggedItem) return;
 
-                const droppedX = e.clientX;
-                const droppedY = e.clientY;
+                const clientX = e.changedTouches ? e.changedTouches[0].clientX : e.clientX;
+                const clientY = e.changedTouches ? e.changedTouches[0].clientY : e.clientY;
+                
                 let targetSlotId = null;
-
                 Object.keys(slotRefs.current).forEach((key) => {
                     const slotEl = slotRefs.current[key];
                     if (slotEl) {
                         const rect = slotEl.getBoundingClientRect();
                         const distance = Math.hypot(
-                            rect.x + rect.width / 2 - droppedX,
-                            rect.y + rect.height / 2 - droppedY
+                            rect.x + rect.width / 2 - clientX,
+                            rect.y + rect.height / 2 - clientY
                         );
                         if (distance < 50) targetSlotId = parseInt(key);
                     }
@@ -434,14 +413,20 @@
                 return {};
             };
 
+            // Layout Helpers
+            const unplacedAnswers = answers.filter(a => a.currentSlot === null);
+
             return (
                 <div 
                     className="w-full h-screen bg-slate-900 overflow-hidden flex flex-col items-center select-none touch-none"
-                    onPointerMove={handlePointerMove}
-                    onPointerUp={handlePointerUp}
+                    // Add touch listeners to container for better mobile drag tracking
+                    onTouchMove={handlePointerMove}
+                    onTouchEnd={handlePointerUp}
+                    onMouseMove={handlePointerMove}
+                    onMouseUp={handlePointerUp}
                     style={{ touchAction: 'none' }} 
                 >
-                    {/* Background Snow Effect */}
+                    {/* Background */}
                     <div className="absolute inset-0 pointer-events-none opacity-20">
                         {[...Array(20)].map((_, i) => (
                             <div 
@@ -459,65 +444,46 @@
                     </div>
 
                     {/* Header */}
-                    <div className="z-10 w-full p-4 flex justify-between items-center bg-slate-800/80 text-white shadow-lg border-b border-white/10">
-                        <h1 className="text-xl md:text-2xl font-bold flex items-center gap-2 text-green-400">
-                            <span className="text-2xl">🎄</span> 聖誕數學樹
+                    <div className="z-10 w-full p-2 md:p-4 flex justify-between items-center bg-slate-800/80 text-white shadow-lg border-b border-white/10 shrink-0">
+                        <h1 className="text-lg md:text-2xl font-bold flex items-center gap-2 text-green-400">
+                            <span className="text-xl md:text-2xl">🎄</span> 
+                            <span className="hidden md:inline">聖誕數學樹</span>
+                            <span className="md:hidden">數學樹</span>
                         </h1>
-                        <div className="flex gap-2 md:gap-4">
+                        <div className="flex gap-2">
                             <button 
                                 onClick={() => setShowAIModal(true)}
-                                className="flex items-center gap-2 px-3 py-2 bg-indigo-600 hover:bg-indigo-500 rounded-full font-bold shadow-md transition-transform active:scale-95 text-sm md:text-base"
+                                className="flex items-center gap-1 md:gap-2 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 rounded-full font-bold shadow-md text-xs md:text-base"
                             >
-                                <Wand2 size={18} /> <span className="hidden md:inline">AI </span>自訂關卡
+                                <Wand2 size={16} /> AI出題
                             </button>
                             <button 
                                 onClick={startNewGame}
-                                className="flex items-center gap-2 px-3 py-2 bg-red-600 hover:bg-red-500 rounded-full font-bold shadow-md transition-transform active:scale-95 text-sm md:text-base"
+                                className="flex items-center gap-1 md:gap-2 px-3 py-1.5 bg-red-600 hover:bg-red-500 rounded-full font-bold shadow-md text-xs md:text-base"
                             >
-                                <RefreshCw size={18} /> 重玩
+                                <RefreshCw size={16} /> 重玩
                             </button>
                         </div>
                     </div>
 
-                    {/* Main Game Area */}
-                    <div className="flex-1 w-full max-w-6xl flex relative overflow-hidden">
+                    {/* Main Game Area - Mobile: Flex Column, Desktop: Flex Row */}
+                    <div className="flex-1 w-full max-w-6xl flex flex-col md:flex-row relative overflow-hidden">
                         
-                        {/* Left Side Answers */}
-                        <div className="w-1/4 h-full flex flex-col items-center justify-center gap-4 py-4 z-20">
+                        {/* Desktop Left Side (Hidden on Mobile) */}
+                        <div className="hidden md:flex w-1/4 h-full flex-col items-center justify-center gap-4 py-4 z-20">
                             <div className="flex flex-col gap-3 w-full items-center overflow-y-auto hide-scrollbar pb-20">
-                                {answers.filter(a => a.side === 'left').map(ans => {
-                                    const isBeingDragged = ans.id === draggedItem;
-                                    return (
-                                        !ans.currentSlot && (
-                                            <div
-                                                key={ans.id}
-                                                onPointerDown={(e) => handlePointerDown(e, ans.id)}
-                                                style={{ 
-                                                    opacity: isBeingDragged ? 0 : 1,
-                                                    touchAction: 'none'
-                                                }}
-                                                className={`
-                                                    w-12 h-12 md:w-16 md:h-16 rounded-full flex items-center justify-center 
-                                                    text-xl md:text-2xl font-bold shadow-[0_4px_0_rgb(0,0,0,0.2)] cursor-grab
-                                                    bg-gradient-to-br ${ans.colorStyle.bg} text-white border-2 ${ans.colorStyle.border}
-                                                    transition-opacity duration-200
-                                                `}
-                                            >
-                                                {ans.value}
-                                                <div className="absolute -top-1 w-1 h-3 bg-yellow-600/50 rounded-full"></div>
-                                            </div>
-                                        )
-                                    )
-                                })}
+                                {unplacedAnswers.filter((_, i) => i % 2 === 0).map(ans => (
+                                    <DraggableBall key={ans.id} ans={ans} draggedItem={draggedItem} onDown={handlePointerDown} />
+                                ))}
                             </div>
                         </div>
 
-                        {/* Center Tree */}
-                        <div className="w-2/4 h-full relative flex items-center justify-center" ref={treeRef}>
-                            <div className="relative w-full h-full max-h-[80vh] aspect-[2/3] flex items-center justify-center">
+                        {/* Center Tree - Takes full width on mobile, middle on desktop */}
+                        <div className="w-full md:w-2/4 h-[65%] md:h-full relative flex items-center justify-center shrink-0" ref={treeRef}>
+                            <div className="relative w-full h-full max-h-[80vh] aspect-[2/3] md:aspect-[2/3] flex items-center justify-center">
                                 {/* Star */}
                                 <div className={`absolute top-[8%] left-1/2 -translate-x-1/2 z-10 transition-all duration-500 ${completed ? 'scale-150 drop-shadow-[0_0_20px_rgba(255,255,0,0.8)]' : 'scale-100'}`}>
-                                    <Star size={48} fill={completed ? "gold" : "#fbbf24"} color="#b45309" strokeWidth={2} className="animate-pulse" />
+                                    <Star size={40} fill={completed ? "gold" : "#fbbf24"} color="#b45309" strokeWidth={2} className="animate-pulse" />
                                 </div>
 
                                 {/* Tree SVG */}
@@ -535,10 +501,10 @@
                                         key={prob.id}
                                         ref={el => slotRefs.current[prob.id] = el}
                                         className={`
-                                            absolute w-14 h-14 md:w-20 md:h-20 rounded-full 
+                                            absolute w-12 h-12 md:w-20 md:h-20 rounded-full 
                                             flex items-center justify-center text-center
                                             transform -translate-x-1/2 -translate-y-1/2
-                                            border-4 transition-all duration-300
+                                            border-[3px] md:border-4 transition-all duration-300
                                             ${prob.solved 
                                                 ? 'bg-yellow-100 border-yellow-400 shadow-[0_0_15px_rgba(255,215,0,0.6)]' 
                                                 : 'bg-green-800/80 border-green-600 shadow-inner'
@@ -547,7 +513,7 @@
                                         style={{ top: prob.top, left: prob.left }}
                                     >
                                         {!prob.solved && (
-                                            <span className="text-white font-bold text-sm md:text-lg drop-shadow-md">
+                                            <span className="text-white font-bold text-xs md:text-lg drop-shadow-md whitespace-nowrap">
                                                 {prob.question}
                                             </span>
                                         )}
@@ -561,10 +527,10 @@
                                             key={ans.id}
                                             style={getPlacedStyle(ans)}
                                             className={`
-                                                w-12 h-12 md:w-16 md:h-16 rounded-full flex items-center justify-center 
-                                                text-xl md:text-2xl font-bold shadow-lg
+                                                w-10 h-10 md:w-16 md:h-16 rounded-full flex items-center justify-center 
+                                                text-lg md:text-2xl font-bold shadow-lg
                                                 bg-gradient-to-br ${ans.colorStyle.bg} text-white border-2 ${ans.colorStyle.border}
-                                                animate-bounce-short
+                                                animate-bounce-short pointer-events-none
                                             `}
                                         >
                                             {ans.value}
@@ -574,33 +540,22 @@
                             </div>
                         </div>
 
-                        {/* Right Side Answers */}
-                        <div className="w-1/4 h-full flex flex-col items-center justify-center gap-4 py-4 z-20">
+                        {/* Desktop Right Side (Hidden on Mobile) */}
+                        <div className="hidden md:flex w-1/4 h-full flex-col items-center justify-center gap-4 py-4 z-20">
                             <div className="flex flex-col gap-3 w-full items-center overflow-y-auto hide-scrollbar pb-20">
-                                {answers.filter(a => a.side === 'right').map(ans => {
-                                    const isBeingDragged = ans.id === draggedItem;
-                                    return (
-                                        !ans.currentSlot && (
-                                            <div
-                                                key={ans.id}
-                                                onPointerDown={(e) => handlePointerDown(e, ans.id)}
-                                                style={{ 
-                                                    opacity: isBeingDragged ? 0 : 1,
-                                                    touchAction: 'none' 
-                                                }}
-                                                className={`
-                                                    w-12 h-12 md:w-16 md:h-16 rounded-full flex items-center justify-center 
-                                                    text-xl md:text-2xl font-bold shadow-[0_4px_0_rgb(0,0,0,0.2)] cursor-grab
-                                                    bg-gradient-to-br ${ans.colorStyle.bg} text-white border-2 ${ans.colorStyle.border}
-                                                    transition-opacity duration-200
-                                                `}
-                                            >
-                                                {ans.value}
-                                                <div className="absolute -top-1 w-1 h-3 bg-yellow-600/50 rounded-full"></div>
-                                            </div>
-                                        )
-                                    )
-                                })}
+                                {unplacedAnswers.filter((_, i) => i % 2 !== 0).map(ans => (
+                                    <DraggableBall key={ans.id} ans={ans} draggedItem={draggedItem} onDown={handlePointerDown} />
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* Mobile Bottom Area (Hidden on Desktop) */}
+                        <div className="md:hidden w-full h-[35%] bg-slate-800/50 border-t border-white/10 flex flex-col z-20">
+                            <div className="text-white/50 text-xs text-center py-1">拖曳彩球到樹上</div>
+                            <div className="flex-1 w-full overflow-x-auto overflow-y-hidden flex items-center px-4 gap-4 hide-scrollbar touch-pan-x">
+                                {unplacedAnswers.map(ans => (
+                                    <DraggableBall key={ans.id} ans={ans} draggedItem={draggedItem} onDown={handlePointerDown} mobile={true} />
+                                ))}
                             </div>
                         </div>
 
@@ -612,111 +567,91 @@
                                     left: dragPosition.x,
                                     top: dragPosition.y,
                                     transform: 'translate(-50%, -50%) scale(1.2)',
-                                    zIndex: 50,
+                                    zIndex: 100,
                                     pointerEvents: 'none',
                                 }}
-                                className="
-                                    w-16 h-16 rounded-full flex items-center justify-center 
-                                    text-2xl font-bold shadow-2xl
-                                    bg-yellow-400 text-yellow-900 ring-4 ring-white
-                                "
+                                className={`
+                                    w-14 h-14 md:w-16 md:h-16 rounded-full flex items-center justify-center 
+                                    text-2xl font-bold shadow-2xl ring-4 ring-white
+                                    bg-gradient-to-br ${answers.find(a => a.id === draggedItem)?.colorStyle.bg} text-white
+                                `}
                             >
                                 {answers.find(a => a.id === draggedItem)?.value}
                             </div>
                         )}
-
                     </div>
 
-                    {/* AI Level Generation Modal */}
+                    {/* Modals & Overlays... (Same as before) */}
                     {showAIModal && (
                         <div className="absolute inset-0 bg-black/80 z-50 flex items-center justify-center p-4 backdrop-blur-md">
                             <div className="bg-slate-800 rounded-2xl w-full max-w-lg p-6 border border-indigo-500 shadow-2xl">
                                 <div className="flex justify-between items-center mb-4">
-                                    <h2 className="text-xl font-bold text-indigo-400 flex items-center gap-2">
-                                        <Wand2 /> AI 魔法出題
-                                    </h2>
-                                    <button onClick={() => setShowAIModal(false)} className="text-slate-400 hover:text-white">
-                                        <X size={24} />
-                                    </button>
+                                    <h2 className="text-xl font-bold text-indigo-400 flex items-center gap-2">AI 魔法出題</h2>
+                                    <button onClick={() => setShowAIModal(false)} className="text-slate-400"><X size={24} /></button>
                                 </div>
-                                
-                                <p className="text-slate-300 mb-4 text-sm">
-                                    告訴 AI 老師你想練習什麼？例如：「99乘法表」、「結果大於50的加法」、「困難的減法」。
-                                </p>
-
                                 <textarea 
                                     value={aiPrompt}
                                     onChange={(e) => setAiPrompt(e.target.value)}
-                                    className="w-full h-32 bg-slate-900 border border-slate-700 rounded-lg p-4 text-white focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 mb-4"
+                                    className="w-full h-32 bg-slate-900 border border-slate-700 rounded-lg p-4 text-white mb-4"
                                     placeholder="輸入你的出題要求..."
                                 />
-
-                                {aiError && (
-                                    <div className="text-red-400 text-sm mb-4 text-center">{aiError}</div>
-                                )}
-
+                                {aiError && <div className="text-red-400 text-sm mb-4">{aiError}</div>}
                                 <button 
                                     onClick={generateAILevel}
                                     disabled={isGenerating}
-                                    className={`w-full py-3 rounded-lg font-bold text-white transition-all
-                                        ${isGenerating ? 'bg-slate-600 cursor-wait' : 'bg-gradient-to-r from-indigo-600 to-purple-600 hover:scale-[1.02]'}
-                                    `}
+                                    className="w-full py-3 bg-indigo-600 rounded-lg font-bold text-white"
                                 >
-                                    {isGenerating ? (
-                                        <span className="flex items-center justify-center gap-2">
-                                            <span className="animate-spin">⏳</span> 正在施展魔法...
-                                        </span>
-                                    ) : '✨ 生成關卡'}
+                                    {isGenerating ? '⏳ 生成中...' : '✨ 生成關卡'}
                                 </button>
                             </div>
                         </div>
                     )}
 
-                    {/* Completion Modal */}
                     {completed && (
                         <div className="absolute inset-0 bg-black/70 z-50 flex items-center justify-center p-4 backdrop-blur-sm animate-fade-in">
-                            <div className="bg-white rounded-3xl p-8 max-w-md w-full text-center shadow-2xl border-8 border-green-500 transform scale-100 animate-bounce-short">
+                            <div className="bg-white rounded-3xl p-6 md:p-8 max-w-md w-full text-center shadow-2xl border-8 border-green-500 animate-bounce-short">
                                 <Trophy size={64} className="mx-auto text-yellow-500 mb-4" />
-                                <h2 className="text-3xl font-black text-slate-800 mb-2">太棒了！</h2>
+                                <h2 className="text-2xl md:text-3xl font-black text-slate-800 mb-2">太棒了！</h2>
                                 <p className="text-slate-600 mb-4">你成功裝飾了聖誕樹！</p>
-                                
-                                {/* AI Generated Encouragement */}
-                                {aiWinMessage ? (
-                                    <div className="bg-yellow-50 p-4 rounded-xl border border-yellow-200 mb-6 animate-pulse">
-                                        <p className="text-lg font-bold text-yellow-800">
-                                            <span className="mr-2">🤖 AI 老師說：</span>
-                                            <br/>
-                                            "{aiWinMessage}"
-                                        </p>
-                                    </div>
-                                ) : (
-                                    <div className="mb-6 h-16 flex items-center justify-center text-slate-400">
-                                        <span className="animate-pulse">AI 正在想誇獎你的話...</span>
-                                    </div>
-                                )}
-
-                                <div className="flex justify-center">
-                                    <button 
-                                        onClick={startNewGame}
-                                        className="bg-green-600 hover:bg-green-500 text-white text-xl font-bold py-3 px-8 rounded-full shadow-lg transition-transform hover:scale-105 active:scale-95"
-                                    >
-                                        再來一次
-                                    </button>
-                                </div>
+                                {aiWinMessage && <p className="text-yellow-800 bg-yellow-50 p-3 rounded-lg mb-6">"{aiWinMessage}"</p>}
+                                <button onClick={startNewGame} className="bg-green-600 text-white text-xl font-bold py-3 px-8 rounded-full shadow-lg">再來一次</button>
                             </div>
                         </div>
                     )}
 
-                    {/* Visual Feedback Overlay */}
                     {feedback && (
-                        <div className="absolute top-20 pointer-events-none z-50 animate-ping">
+                        <div className="absolute top-20 pointer-events-none z-50 animate-ping w-full text-center">
                             {feedback === 'correct' ? (
-                                <div className="text-green-400 text-4xl font-black drop-shadow-md">✓ 正確</div>
+                                <span className="text-green-400 text-4xl font-black drop-shadow-md">✓ 正確</span>
                             ) : (
-                                <div className="text-red-500 text-4xl font-black drop-shadow-md">✕ 再試試</div>
+                                <span className="text-red-500 text-4xl font-black drop-shadow-md">✕ 再試試</span>
                             )}
                         </div>
                     )}
+                </div>
+            );
+        };
+
+        // Extracted Ball Component for cleaner render logic
+        const DraggableBall = ({ ans, draggedItem, onDown, mobile = false }) => {
+            const isBeingDragged = ans.id === draggedItem;
+            return (
+                <div
+                    onMouseDown={(e) => onDown(e, ans.id)}
+                    onTouchStart={(e) => onDown(e, ans.id)}
+                    style={{ 
+                        opacity: isBeingDragged ? 0 : 1,
+                        touchAction: 'none'
+                    }}
+                    className={`
+                        ${mobile ? 'w-14 h-14 text-xl min-w-[3.5rem]' : 'w-12 h-12 md:w-16 md:h-16 text-xl md:text-2xl'} 
+                        rounded-full flex items-center justify-center font-bold shadow-[0_4px_0_rgb(0,0,0,0.2)] cursor-grab
+                        bg-gradient-to-br ${ans.colorStyle.bg} text-white border-2 ${ans.colorStyle.border}
+                        transition-opacity duration-200 shrink-0 select-none
+                    `}
+                >
+                    {ans.value}
+                    <div className="absolute -top-1 w-1 h-3 bg-yellow-600/50 rounded-full"></div>
                 </div>
             );
         };
