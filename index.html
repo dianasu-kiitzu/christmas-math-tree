@@ -16,7 +16,7 @@
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
     <style>
-        body { margin: 0; padding: 0; overflow: hidden; background-color: #0f172a; touch-action: none; }
+        body { margin: 0; padding: 0; overflow: hidden; background-color: #0f172a; overscroll-behavior: none; }
         .hide-scrollbar::-webkit-scrollbar { display: none; }
         .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
         @keyframes bounce-short {
@@ -26,9 +26,6 @@
         .animate-bounce-short { animation: bounce-short 0.5s ease-in-out; }
         .cursor-grab { cursor: grab; }
         .cursor-grabbing { cursor: grabbing; }
-        
-        /* Prevent pull-to-refresh on mobile */
-        body { overscroll-behavior-y: contain; }
     </style>
 </head>
 <body>
@@ -63,6 +60,10 @@
             const [draggedItem, setDraggedItem] = useState(null);
             const [dragPosition, setDragPosition] = useState({ x: 0, y: 0 });
             const [feedback, setFeedback] = useState(null);
+            
+            // New Refs for Touch Handling
+            const dragStartPos = useRef({ x: 0, y: 0 });
+            const pendingDrag = useRef(null);
             
             // AI State
             const [showAIModal, setShowAIModal] = useState(false);
@@ -266,31 +267,64 @@
                 setAiWinMessage("");
             };
 
-            // --- Drag and Drop ---
+            // --- Drag and Drop (Enhanced for Mobile Scroll vs Drag) ---
             const handlePointerDown = (e, answerId) => {
-                e.preventDefault(); 
-                const answer = answers.find(a => a.id === answerId);
-                if (answer.currentSlot !== null) return;
-                
-                // For mobile touches, use first touch point
-                const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-                const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+                // If using mouse, start drag immediately
+                if (!e.touches) {
+                    e.preventDefault();
+                    setDraggedItem(answerId);
+                    setDragPosition({ x: e.clientX, y: e.clientY });
+                    setAnswers(prev => prev.map(a => a.id === answerId ? { ...a, isDragging: true } : a));
+                    return;
+                }
 
-                setDraggedItem(answerId);
-                setDragPosition({ x: clientX, y: clientY });
-                setAnswers(prev => prev.map(a => a.id === answerId ? { ...a, isDragging: true } : a));
+                // For touch: Record start position but DO NOT start drag yet.
+                // We wait to see if user moves vertically (drag) or horizontally (scroll).
+                const touch = e.touches[0];
+                dragStartPos.current = { x: touch.clientX, y: touch.clientY };
+                pendingDrag.current = answerId;
+                // Important: Do NOT preventDefault here, so scrolling can happen.
             };
 
             const handlePointerMove = (e) => {
+                const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+                const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+
+                // Case 1: Already actively dragging an item
                 if (draggedItem) {
-                    e.preventDefault();
-                    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-                    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+                    if (e.cancelable) e.preventDefault(); // Stop scrolling while dragging
                     setDragPosition({ x: clientX, y: clientY });
+                    return;
+                }
+
+                // Case 2: Waiting to decide between Drag vs Scroll (Touch only)
+                if (pendingDrag.current && e.touches) {
+                    const startX = dragStartPos.current.x;
+                    const startY = dragStartPos.current.y;
+                    const deltaX = Math.abs(clientX - startX);
+                    const deltaY = Math.abs(clientY - startY);
+
+                    // Threshold to detect intention (5px)
+                    if (deltaX > 5 || deltaY > 5) {
+                        // If moving vertically more than horizontally -> Start Dragging
+                        if (deltaY > deltaX) {
+                             if (e.cancelable) e.preventDefault();
+                             const ansId = pendingDrag.current;
+                             setDraggedItem(ansId);
+                             setDragPosition({ x: clientX, y: clientY });
+                             setAnswers(prev => prev.map(a => a.id === ansId ? { ...a, isDragging: true } : a));
+                             pendingDrag.current = null;
+                        } else {
+                            // Moving horizontally -> It's a scroll, cancel pending drag
+                            pendingDrag.current = null;
+                        }
+                    }
                 }
             };
 
             const handlePointerUp = (e) => {
+                pendingDrag.current = null; // Clear pending state
+                
                 if (!draggedItem) return;
 
                 const clientX = e.changedTouches ? e.changedTouches[0].clientX : e.clientX;
@@ -418,13 +452,13 @@
 
             return (
                 <div 
-                    className="w-full h-screen bg-slate-900 overflow-hidden flex flex-col items-center select-none touch-none"
+                    className="w-full h-screen bg-slate-900 overflow-hidden flex flex-col items-center select-none"
                     // Add touch listeners to container for better mobile drag tracking
                     onTouchMove={handlePointerMove}
                     onTouchEnd={handlePointerUp}
                     onMouseMove={handlePointerMove}
                     onMouseUp={handlePointerUp}
-                    style={{ touchAction: 'none' }} 
+                    // Removed touchAction: none from root to allow specific areas to scroll
                 >
                     {/* Background */}
                     <div className="absolute inset-0 pointer-events-none opacity-20">
@@ -470,7 +504,7 @@
                     <div className="flex-1 w-full max-w-6xl flex flex-col md:flex-row relative overflow-hidden">
                         
                         {/* Desktop Left Side (Hidden on Mobile) */}
-                        <div className="hidden md:flex w-1/4 h-full flex-col items-center justify-center gap-4 py-4 z-20">
+                        <div className="hidden md:flex w-1/4 h-full flex-col items-center justify-center gap-4 py-4 z-20 touch-none">
                             <div className="flex flex-col gap-3 w-full items-center overflow-y-auto hide-scrollbar pb-20">
                                 {unplacedAnswers.filter((_, i) => i % 2 === 0).map(ans => (
                                     <DraggableBall key={ans.id} ans={ans} draggedItem={draggedItem} onDown={handlePointerDown} />
@@ -479,7 +513,7 @@
                         </div>
 
                         {/* Center Tree - Takes full width on mobile, middle on desktop */}
-                        <div className="w-full md:w-2/4 h-[65%] md:h-full relative flex items-center justify-center shrink-0" ref={treeRef}>
+                        <div className="w-full md:w-2/4 h-[65%] md:h-full relative flex items-center justify-center shrink-0 touch-none" ref={treeRef}>
                             <div className="relative w-full h-full max-h-[80vh] aspect-[2/3] md:aspect-[2/3] flex items-center justify-center">
                                 {/* Star */}
                                 <div className={`absolute top-[8%] left-1/2 -translate-x-1/2 z-10 transition-all duration-500 ${completed ? 'scale-150 drop-shadow-[0_0_20px_rgba(255,255,0,0.8)]' : 'scale-100'}`}>
@@ -541,7 +575,7 @@
                         </div>
 
                         {/* Desktop Right Side (Hidden on Mobile) */}
-                        <div className="hidden md:flex w-1/4 h-full flex-col items-center justify-center gap-4 py-4 z-20">
+                        <div className="hidden md:flex w-1/4 h-full flex-col items-center justify-center gap-4 py-4 z-20 touch-none">
                             <div className="flex flex-col gap-3 w-full items-center overflow-y-auto hide-scrollbar pb-20">
                                 {unplacedAnswers.filter((_, i) => i % 2 !== 0).map(ans => (
                                     <DraggableBall key={ans.id} ans={ans} draggedItem={draggedItem} onDown={handlePointerDown} />
@@ -550,7 +584,7 @@
                         </div>
 
                         {/* Mobile Bottom Area (Hidden on Desktop) */}
-                        <div className="md:hidden w-full h-[35%] bg-slate-800/50 border-t border-white/10 flex flex-col z-20">
+                        <div className="md:hidden w-full h-[35%] bg-slate-800/50 border-t border-white/10 flex flex-col z-20 touch-pan-x">
                             <div className="text-white/50 text-xs text-center py-1">拖曳彩球到樹上</div>
                             <div className="flex-1 w-full overflow-x-auto overflow-y-hidden flex items-center px-4 gap-4 hide-scrollbar touch-pan-x">
                                 {unplacedAnswers.map(ans => (
