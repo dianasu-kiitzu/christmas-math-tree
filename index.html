@@ -62,17 +62,16 @@
             const [dragPosition, setDragPosition] = useState({ x: 0, y: 0 });
             const [feedback, setFeedback] = useState(null);
             
-            // New Refs for Touch Handling
-            const dragStartPos = useRef({ x: 0, y: 0 });
-            const pendingDrag = useRef(null);
-            
             // AI State
             const [showAIModal, setShowAIModal] = useState(false);
             const [aiPrompt, setAiPrompt] = useState("給我 10 題適合小學一年級的加減法");
             const [isGenerating, setIsGenerating] = useState(false);
             const [aiWinMessage, setAiWinMessage] = useState("");
             const [aiError, setAiError] = useState("");
-            const [debugInfo, setDebugInfo] = useState(null); // 用來顯示詳細錯誤
+            const [debugInfo, setDebugInfo] = useState(null);
+            
+            // New: Model Selector
+            const [selectedModel, setSelectedModel] = useState("gemini-1.5-flash");
 
             const treeRef = useRef(null);
             const slotRefs = useRef({});
@@ -107,11 +106,19 @@
                 { bg: 'from-cyan-400 to-cyan-600', border: 'border-cyan-300' },
             ];
 
+            const AVAILABLE_MODELS = [
+                { id: "gemini-1.5-flash", name: "Gemini 1.5 Flash (預設)" },
+                { id: "gemini-1.5-flash-002", name: "Gemini 1.5 Flash-002 (穩定版)" },
+                { id: "gemini-1.5-flash-latest", name: "Gemini 1.5 Flash (最新版)" },
+                { id: "gemini-1.5-pro", name: "Gemini 1.5 Pro (進階版)" },
+                { id: "gemini-pro", name: "Gemini 1.0 Pro (舊版)" },
+            ];
+
             useEffect(() => {
                 startNewGame();
             }, [level]);
 
-            // --- Gemini API Logic (Diagnostic Mode) ---
+            // --- Gemini API Logic ---
             const callGemini = async (prompt, systemInstruction = "") => {
                 setDebugInfo(null);
                 
@@ -121,12 +128,9 @@
                 }
                 
                 try {
-                    console.log("Starting API call...");
-                    // Try to log the key length to confirm it's loaded (without revealing full key)
-                    console.log(`Key loaded: ${apiKey.substring(0, 4)}... (Length: ${apiKey.length})`);
-
+                    console.log(`Using model: ${selectedModel}`);
                     const response = await fetch(
-                        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
+                        `https://generativelanguage.googleapis.com/v1beta/models/${selectedModel}:generateContent?key=${apiKey}`,
                         {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
@@ -139,21 +143,12 @@
                     );
                     
                     if (!response.ok) {
-                        // 取得詳細錯誤訊息文字
                         const errorText = await response.text();
-                        console.error("API Failed Response:", errorText);
-                        
-                        // 顯示在畫面上供診斷
                         let errorJson;
-                        try {
-                           errorJson = JSON.parse(errorText);
-                        } catch(e) {
-                           errorJson = { message: errorText };
-                        }
+                        try { errorJson = JSON.parse(errorText); } catch(e) { errorJson = { message: errorText }; }
                         
-                        const detailedError = `Status: ${response.status}\nMessage: ${errorJson.error?.message || errorText}`;
+                        const detailedError = `Model: ${selectedModel}\nStatus: ${response.status}\nMessage: ${errorJson.error?.message || errorText}`;
                         setDebugInfo(detailedError);
-                        
                         throw new Error(detailedError);
                     }
                     
@@ -161,7 +156,6 @@
                     return JSON.parse(data.candidates[0].content.parts[0].text);
                 } catch (error) {
                     console.error("Gemini API Error:", error);
-                    // 如果沒有被上面攔截到（例如網路斷線），這裡也會捕捉
                     if (!debugInfo) setDebugInfo(error.message);
                     throw error;
                 }
@@ -188,15 +182,35 @@
                         setAiError("AI 回傳了空資料");
                     }
                 } catch (e) {
-                    // Error is already handled in debugInfo
                     setAiError("發生錯誤，請查看下方紅色診斷訊息 👇");
                 } finally {
                     setIsGenerating(false);
                 }
             };
 
-            // (AI Win Message function omitted for brevity in diag mode, same logic applies)
-             const fetchAIWinMessage = async () => { /* ... */ };
+            const fetchAIWinMessage = async () => {
+                if (!apiKey) {
+                    setAiWinMessage("太棒了！你是數學小天才！🎉");
+                    return;
+                }
+                try {
+                    const response = await fetch(
+                        `https://generativelanguage.googleapis.com/v1beta/models/${selectedModel}:generateContent?key=${apiKey}`,
+                        {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                contents: [{ parts: [{ text: "Write a short, funny, emoji-filled congratulatory message (Traditional Chinese) for a kid who just solved 10 math problems. Max 20 words." }] }],
+                            }),
+                        }
+                    );
+                    const data = await response.json();
+                    const msg = data.candidates?.[0]?.content?.parts?.[0]?.text;
+                    if (msg) setAiWinMessage(msg);
+                } catch (e) {
+                    setAiWinMessage("太棒了！你是數學小天才！🎉");
+                }
+            };
 
             // --- Game Logic ---
             const setupGameFromData = (dataList) => {
@@ -364,7 +378,7 @@
                 }
 
                 if (answerObj.value === problemObj.answer) {
-                    // Success logic...
+                    playSound('success');
                     setAnswers(prev => prev.map(a => 
                         a.id === ansId ? { ...a, isDragging: false, currentSlot: slotId } : a
                     ));
@@ -374,6 +388,7 @@
                     setFeedback('correct');
                     setTimeout(() => setFeedback(null), 1000);
                 } else {
+                    playSound('error');
                     setFeedback('wrong');
                     setTimeout(() => setFeedback(null), 1000);
                     resetDrag(ansId);
@@ -383,10 +398,68 @@
             useEffect(() => {
                 if (problems.length > 0 && problems.every(p => p.solved)) {
                     setCompleted(true);
+                    playSound('win');
+                    fetchAIWinMessage();
                 }
             }, [problems]);
 
-            // Layout Helpers
+            const playSound = (type) => {
+                const AudioContext = window.AudioContext || window.webkitAudioContext;
+                if (!AudioContext) return;
+                const ctx = new AudioContext();
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+                osc.connect(gain);
+                gain.connect(ctx.destination);
+
+                if (type === 'success') {
+                    osc.type = 'sine';
+                    osc.frequency.setValueAtTime(500, ctx.currentTime);
+                    osc.frequency.exponentialRampToValueAtTime(1000, ctx.currentTime + 0.1);
+                    gain.gain.setValueAtTime(0.2, ctx.currentTime);
+                    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.3);
+                    osc.start();
+                    osc.stop(ctx.currentTime + 0.3);
+                } else if (type === 'error') {
+                    osc.type = 'sawtooth';
+                    osc.frequency.setValueAtTime(200, ctx.currentTime);
+                    osc.frequency.linearRampToValueAtTime(100, ctx.currentTime + 0.2);
+                    gain.gain.setValueAtTime(0.2, ctx.currentTime);
+                    gain.gain.linearRampToValueAtTime(0.01, ctx.currentTime + 0.2);
+                    osc.start();
+                    osc.stop(ctx.currentTime + 0.2);
+                } else if (type === 'win') {
+                    const now = ctx.currentTime;
+                    [523.25, 659.25, 783.99, 1046.50].forEach((freq, i) => {
+                        const osc2 = ctx.createOscillator();
+                        const gain2 = ctx.createGain();
+                        osc2.connect(gain2);
+                        gain2.connect(ctx.destination);
+                        osc2.type = 'triangle';
+                        osc2.frequency.value = freq;
+                        gain2.gain.setValueAtTime(0.1, now + i * 0.1);
+                        gain2.gain.exponentialRampToValueAtTime(0.01, now + i * 0.1 + 0.5);
+                        osc2.start(now + i * 0.1);
+                        osc2.stop(now + i * 0.1 + 0.5);
+                    });
+                }
+            };
+
+            const getPlacedStyle = (ans) => {
+                if (ans.currentSlot !== null) {
+                    const slot = problems.find(p => p.id === ans.currentSlot);
+                    return {
+                        position: 'absolute',
+                        left: slot.left,
+                        top: slot.top,
+                        transform: 'translate(-50%, -50%)',
+                        zIndex: 10,
+                        transition: 'all 0.3s ease-out'
+                    };
+                }
+                return {};
+            };
+
             const unplacedAnswers = answers.filter(a => a.currentSlot === null);
 
             return (
@@ -397,12 +470,22 @@
                     onMouseMove={handlePointerMove}
                     onMouseUp={handlePointerUp}
                 >
-                    {/* Background */}
                     <div className="absolute inset-0 pointer-events-none opacity-20">
-                         {/* Snow... */}
+                        {[...Array(20)].map((_, i) => (
+                            <div 
+                                key={i}
+                                className="absolute bg-white rounded-full animate-pulse"
+                                style={{
+                                    width: Math.random() * 5 + 2 + 'px',
+                                    height: Math.random() * 5 + 2 + 'px',
+                                    top: Math.random() * 100 + '%',
+                                    left: Math.random() * 100 + '%',
+                                    animationDuration: Math.random() * 3 + 2 + 's'
+                                }}
+                            />
+                        ))}
                     </div>
 
-                    {/* Header */}
                     <div className="z-10 w-full p-2 md:p-4 flex justify-between items-center bg-slate-800/80 text-white shadow-lg border-b border-white/10 shrink-0">
                         <h1 className="text-lg md:text-2xl font-bold flex items-center gap-2 text-green-400">
                             <span className="text-xl md:text-2xl">🎄</span> 
@@ -425,10 +508,7 @@
                         </div>
                     </div>
 
-                    {/* Main Game Area */}
                     <div className="flex-1 w-full max-w-6xl flex flex-col md:flex-row relative overflow-hidden">
-                        
-                        {/* Desktop Left */}
                         <div className="hidden md:flex w-1/4 h-full flex-col items-center justify-center gap-4 py-4 z-20 touch-none">
                             <div className="flex flex-col gap-3 w-full items-center overflow-y-auto hide-scrollbar pb-20">
                                 {unplacedAnswers.filter((_, i) => i % 2 === 0).map(ans => (
@@ -437,10 +517,8 @@
                             </div>
                         </div>
 
-                        {/* Center Tree */}
                         <div className="w-full md:w-2/4 h-[65%] md:h-full relative flex items-center justify-center shrink-0 touch-none" ref={treeRef}>
                             <div className="relative w-full h-full max-h-[80vh] aspect-[2/3] md:aspect-[2/3] flex items-center justify-center">
-                                {/* Star, SVG Tree, Slots... */}
                                 <div className={`absolute top-[8%] left-1/2 -translate-x-1/2 z-10 transition-all duration-500 ${completed ? 'scale-150 drop-shadow-[0_0_20px_rgba(255,255,0,0.8)]' : 'scale-100'}`}>
                                     <Star size={40} fill={completed ? "gold" : "#fbbf24"} color="#b45309" strokeWidth={2} className="animate-pulse" />
                                 </div>
@@ -468,7 +546,6 @@
                             </div>
                         </div>
 
-                        {/* Desktop Right */}
                         <div className="hidden md:flex w-1/4 h-full flex-col items-center justify-center gap-4 py-4 z-20 touch-none">
                             <div className="flex flex-col gap-3 w-full items-center overflow-y-auto hide-scrollbar pb-20">
                                 {unplacedAnswers.filter((_, i) => i % 2 !== 0).map(ans => (
@@ -477,7 +554,6 @@
                             </div>
                         </div>
 
-                        {/* Mobile Bottom */}
                         <div className="md:hidden w-full h-[35%] bg-slate-800/50 border-t border-white/10 flex flex-col z-20 touch-pan-x">
                             <div className="text-white/50 text-xs text-center py-1">拖曳彩球到樹上</div>
                             <div className="flex-1 w-full overflow-x-auto overflow-y-hidden flex items-center px-4 gap-4 hide-scrollbar touch-pan-x">
@@ -487,7 +563,6 @@
                             </div>
                         </div>
 
-                        {/* Dragging Portal */}
                         {draggedItem && (
                              <div style={{ position: 'fixed', left: dragPosition.x, top: dragPosition.y, transform: 'translate(-50%, -50%) scale(1.2)', zIndex: 100, pointerEvents: 'none' }}
                                 className={`w-14 h-14 md:w-16 md:h-16 rounded-full flex items-center justify-center text-2xl font-bold shadow-2xl ring-4 ring-white bg-gradient-to-br ${answers.find(a => a.id === draggedItem)?.colorStyle.bg} text-white`}>
@@ -496,7 +571,6 @@
                         )}
                     </div>
 
-                    {/* AI Modal */}
                     {showAIModal && (
                         <div className="absolute inset-0 bg-black/80 z-50 flex items-center justify-center p-4 backdrop-blur-md">
                             <div className="bg-slate-800 rounded-2xl w-full max-w-lg p-6 border border-indigo-500 shadow-2xl relative">
@@ -506,7 +580,19 @@
                                 </div>
                                 <textarea value={aiPrompt} onChange={(e) => setAiPrompt(e.target.value)} className="w-full h-32 bg-slate-900 border border-slate-700 rounded-lg p-4 text-white mb-4" placeholder="輸入你的出題要求..." />
                                 
-                                {/* 🔴 Debug Info Box */}
+                                <div className="mb-4">
+                                    <label className="text-slate-400 text-sm mb-1 block">選擇 AI 模型 (如果失敗請切換)</label>
+                                    <select 
+                                        value={selectedModel}
+                                        onChange={(e) => setSelectedModel(e.target.value)}
+                                        className="w-full bg-slate-700 text-white p-2 rounded border border-slate-600 focus:border-indigo-500 outline-none"
+                                    >
+                                        {AVAILABLE_MODELS.map(m => (
+                                            <option key={m.id} value={m.id}>{m.name}</option>
+                                        ))}
+                                    </select>
+                                </div>
+
                                 {debugInfo && (
                                     <div className="mb-4 p-3 bg-red-900/80 border border-red-500 rounded text-red-200 text-xs font-mono break-all whitespace-pre-wrap h-32 overflow-y-auto">
                                         <strong>錯誤診斷:</strong><br/>
@@ -522,8 +608,27 @@
                         </div>
                     )}
                     
-                    {/* Completion Modal... */}
-                    {/* Feedback... */}
+                    {completed && (
+                        <div className="absolute inset-0 bg-black/70 z-50 flex items-center justify-center p-4 backdrop-blur-sm animate-fade-in">
+                            <div className="bg-white rounded-3xl p-6 md:p-8 max-w-md w-full text-center shadow-2xl border-8 border-green-500 animate-bounce-short">
+                                <Trophy size={64} className="mx-auto text-yellow-500 mb-4" />
+                                <h2 className="text-2xl md:text-3xl font-black text-slate-800 mb-2">太棒了！</h2>
+                                <p className="text-slate-600 mb-4">你成功裝飾了聖誕樹！</p>
+                                {aiWinMessage && <p className="text-yellow-800 bg-yellow-50 p-3 rounded-lg mb-6">"{aiWinMessage}"</p>}
+                                <button onClick={startNewGame} className="bg-green-600 text-white text-xl font-bold py-3 px-8 rounded-full shadow-lg">再來一次</button>
+                            </div>
+                        </div>
+                    )}
+
+                    {feedback && (
+                        <div className="absolute top-20 pointer-events-none z-50 animate-ping w-full text-center">
+                            {feedback === 'correct' ? (
+                                <span className="text-green-400 text-4xl font-black drop-shadow-md">✓ 正確</span>
+                            ) : (
+                                <span className="text-red-500 text-4xl font-black drop-shadow-md">✕ 再試試</span>
+                            )}
+                        </div>
+                    )}
                 </div>
             );
         };
